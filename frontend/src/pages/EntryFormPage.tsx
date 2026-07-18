@@ -255,8 +255,8 @@ export default function EntryFormPage() {
         const updated = await updateEntry(entry.id, payload)
         setEntry(updated)
       } else {
-        const created = await createEntry(payload)
-        navigate(`/entries/${created.id}/edit`, { replace: true })
+        await createEntry(payload)
+        navigate('/')
       }
     } catch (err) {
       setError(String(err))
