@@ -33,12 +33,13 @@ def get_stats(db: Session = Depends(get_db)):
 
     visited = visited_map(db)
     by_state = []
-    for fips, info in sorted(geo.state_breakdown().items()):
+    for (country, fips), info in sorted(geo.region_breakdown().items()):
         geoids = info["geoids"]
         visited_count = sum(1 for g in geoids if g in visited)
         total = len(geoids)
         by_state.append(
             StateVisitStats(
+                country=country,
                 state_fips=fips,
                 name=info["name"],
                 abbr=info["abbr"],

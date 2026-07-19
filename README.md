@@ -12,8 +12,9 @@ basemap layer on the map.
 ## Features
 
 - **Catalog** — card/list views, filter by category/state/date, full-text search
-- **Map** — US choropleth of visited counties, state drill-down, clustered
-  entry markers, click-through detail panel
+- **Map** — continental US + Canada choropleth of visited counties / census
+  divisions, drill into any state or province, clustered entry markers,
+  click-through detail panel. Counters are kept per country.
 - **Entries** — photos with drag-and-drop upload and automatic thumbnails,
   EXIF-based location/date autofill, address lookup (OpenStreetMap), pickers
   for all 63 US national parks and (on demand) state parks per state
@@ -71,10 +72,14 @@ to look at before adding your own.
 
 ## Notes
 
-- County FIPS codes are derived server-side by point-in-polygon lookup
-  against the bundled GeoJSON — never entered by hand.
-- The county denominator is 3,144 (2023 vintage: Connecticut's 9 planning
-  regions replaced its 8 counties), computed from the bundled file.
+- County / census-division codes are derived server-side by point-in-polygon
+  lookup against the bundled GeoJSON — never entered by hand. An entry's
+  country (US / CA) is derived the same way.
+- Denominators: 3,144 US counties (2023 vintage — Connecticut's 9 planning
+  regions replaced its 8 counties) and 293 Canadian census divisions (2021),
+  computed from the bundled files.
+- Canada boundaries are Statistics Canada 2021 cartographic files, reprojected
+  to WGS84 and generalized; US boundaries are US Census 2023 (20m).
 - Stack: Python / FastAPI / SQLAlchemy / SQLite backend; React / Vite /
   MapLibre GL frontend.
 - `data/` (your database, photos, logs) is gitignored — it's created on

@@ -28,6 +28,7 @@ def _with_county_name(entry: Entry) -> EntryOut:
 
 def _derive_fips(entry: Entry) -> None:
     loc = geo.locate(entry.latitude, entry.longitude)
+    entry.country = loc["country"] if loc else None
     entry.state_fips = loc["state_fips"] if loc else None
     entry.county_fips = loc["county_fips"] if loc else None
 

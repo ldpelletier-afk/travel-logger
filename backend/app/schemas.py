@@ -62,6 +62,7 @@ class EntryOut(BaseModel):
     latitude: float
     longitude: float
     address: str
+    country: str | None = None
     state_fips: str | None
     county_fips: str | None
     county_name: str | None = None
@@ -75,13 +76,21 @@ class EntryOut(BaseModel):
     photos: list[PhotoOut] = []
 
 
-class CountyStats(BaseModel):
+class CountryCountyStats(BaseModel):
+    country: str  # US | CA
     visited: int
     total: int
     percent: float
 
 
+class CountyStats(BaseModel):
+    """Visited-subdivision counters, reported per country (US counties,
+    CA census divisions)."""
+    by_country: list[CountryCountyStats]
+
+
 class VisitedCounty(BaseModel):
+    country: str
     county_fips: str
     sources: list[Literal["entry", "manual"]]
 
@@ -95,6 +104,7 @@ class CategoryCount(BaseModel):
 
 
 class StateVisitStats(BaseModel):
+    country: str  # US | CA
     state_fips: str
     name: str
     abbr: str
@@ -129,6 +139,7 @@ class EntryExport(BaseModel):
     latitude: float
     longitude: float
     address: str
+    country: str | None = None
     state_fips: str | None
     county_fips: str | None
     status: str

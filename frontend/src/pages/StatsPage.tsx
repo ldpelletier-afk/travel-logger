@@ -2,8 +2,36 @@ import { useEffect, useRef, useState } from 'react'
 import { Download, Upload, RefreshCw } from 'lucide-react'
 import { downloadExport, getStats, importData } from '../api/client'
 import type { ImportSummary, Stats } from '../api/types'
+import type { StateVisitStats } from '../api/types'
 import { iconFor } from '../components/icons'
 import { formatDate } from '../lib/format'
+
+function RegionTable({ rows, regionLabel }: { rows: StateVisitStats[]; regionLabel: string }) {
+  if (rows.length === 0) return <div className="empty-state">No data.</div>
+  return (
+    <div className="stats-state-table">
+      <div className="stats-state-header">
+        <div>{regionLabel}</div>
+        <div>Visited</div>
+        <div>%</div>
+      </div>
+      {rows.map((s) => (
+        <div key={`${s.country}${s.state_fips}`} className="stats-state-row">
+          <div>{s.name}</div>
+          <div className="stats-state-count">
+            {s.visited} / {s.total}
+          </div>
+          <div className="stats-state-percent-cell">
+            <div className="stats-state-percent-track">
+              <div className="stats-state-percent-fill" style={{ width: `${s.percent}%` }} />
+            </div>
+            <span>{s.percent}%</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function DataSection() {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -102,9 +130,10 @@ export default function StatsPage() {
   if (!stats) return <div className="empty-state">Loading…</div>
 
   const maxCategoryCount = Math.max(1, ...stats.by_category.map((c) => c.count))
-  const statesByPercent = [...stats.by_state].sort(
-    (a, b) => b.percent - a.percent || a.name.localeCompare(b.name),
-  )
+  const sortByPct = (rows: typeof stats.by_state) =>
+    [...rows].sort((a, b) => b.percent - a.percent || a.name.localeCompare(b.name))
+  const usStates = sortByPct(stats.by_state.filter((s) => s.country === 'US'))
+  const caProvinces = sortByPct(stats.by_state.filter((s) => s.country === 'CA'))
 
   return (
     <div className="stats-page">
@@ -153,28 +182,13 @@ export default function StatsPage() {
         </section>
 
         <section className="stats-section">
-          <h2>Counties by state</h2>
-          <div className="stats-state-table">
-            <div className="stats-state-header">
-              <div>State</div>
-              <div>Visited</div>
-              <div>%</div>
-            </div>
-            {statesByPercent.map((s) => (
-              <div key={s.state_fips} className="stats-state-row">
-                <div>{s.name}</div>
-                <div className="stats-state-count">
-                  {s.visited} / {s.total}
-                </div>
-                <div className="stats-state-percent-cell">
-                  <div className="stats-state-percent-track">
-                    <div className="stats-state-percent-fill" style={{ width: `${s.percent}%` }} />
-                  </div>
-                  <span>{s.percent}%</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <h2>Counties by state (US)</h2>
+          <RegionTable rows={usStates} regionLabel="State" />
+        </section>
+
+        <section className="stats-section">
+          <h2>Census divisions by province (Canada)</h2>
+          <RegionTable rows={caProvinces} regionLabel="Province" />
         </section>
       </div>
 

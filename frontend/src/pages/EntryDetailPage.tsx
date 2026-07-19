@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, MapPin, Calendar, ImageOff, Pencil } from 'lucide-react'
-import { getEntry, listCategories, getStates } from '../api/client'
-import type { Category, Entry, StateFeature } from '../api/types'
+import { getEntry, listCategories, getStates, getCaProvinces } from '../api/client'
+import type { Category, Entry } from '../api/types'
 import { formatDate } from '../lib/format'
 import { midsizeUrl } from '../lib/photos'
-import { displayLocation } from '../lib/location'
+import { displayLocation, regionAbbrKey } from '../lib/location'
 import CategoryBadge from '../components/CategoryBadge'
 import Lightbox from '../components/Lightbox'
 
@@ -13,7 +13,7 @@ export default function EntryDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [entry, setEntry] = useState<Entry | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
-  const [states, setStates] = useState<StateFeature[]>([])
+  const [abbrByKey, setAbbrByKey] = useState<Map<string, string>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [activePhoto, setActivePhoto] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
@@ -25,15 +25,21 @@ export default function EntryDetailPage() {
     setLightboxOpen(false)
     getEntry(Number(id)).catch((e) => setError(String(e))).then((e) => e && setEntry(e))
     listCategories().then(setCategories).catch(() => {})
-    getStates().then((fc) => setStates(fc.features)).catch(() => {})
+    Promise.all([getStates(), getCaProvinces()])
+      .then(([us, ca]) => {
+        const m = new Map<string, string>()
+        for (const s of us.features) m.set(`US${s.properties.STATEFP}`, s.properties.STUSPS)
+        for (const p of ca.features) m.set(`CA${p.properties.STATEFP}`, p.properties.STUSPS)
+        setAbbrByKey(m)
+      })
+      .catch(() => {})
   }, [id])
 
   if (error) return <div className="empty-state error">Couldn't load this entry: {error}</div>
   if (!entry) return <div className="empty-state">Loading…</div>
 
   const category = categories.find((c) => c.id === entry.category_id)
-  const state = states.find((s) => s.properties.STATEFP === entry.state_fips)
-  const location = displayLocation(entry, state?.properties.STUSPS)
+  const location = displayLocation(entry, abbrByKey.get(regionAbbrKey(entry)))
   const gallery = entry.photos
   const shown = gallery[activePhoto]
 

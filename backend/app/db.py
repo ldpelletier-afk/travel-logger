@@ -48,4 +48,10 @@ def run_migrations():
         cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(entries)")}
         if "address" not in cols:
             conn.exec_driver_sql("ALTER TABLE entries ADD COLUMN address TEXT DEFAULT ''")
-            conn.commit()
+        if "country" not in cols:
+            # Existing entries predate multi-country support and are all US.
+            conn.exec_driver_sql("ALTER TABLE entries ADD COLUMN country VARCHAR(2) DEFAULT 'US'")
+        mc_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(manual_counties)")}
+        if mc_cols and "country" not in mc_cols:
+            conn.exec_driver_sql("ALTER TABLE manual_counties ADD COLUMN country VARCHAR(2) DEFAULT 'US'")
+        conn.commit()

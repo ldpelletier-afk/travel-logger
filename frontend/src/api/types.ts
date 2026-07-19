@@ -28,6 +28,7 @@ export interface Entry {
   latitude: number
   longitude: number
   address: string
+  country: string | null
   state_fips: string | null
   county_fips: string | null
   county_name: string | null
@@ -78,13 +79,21 @@ export interface CountyCollection {
   features: CountyFeature[]
 }
 
-export interface CountyStats {
+export type Country = 'US' | 'CA'
+
+export interface CountryCountyStats {
+  country: Country
   visited: number
   total: number
   percent: number
 }
 
+export interface CountyStats {
+  by_country: CountryCountyStats[]
+}
+
 export interface VisitedCounty {
+  country: Country
   county_fips: string
   sources: ('entry' | 'manual')[]
 }
@@ -98,6 +107,7 @@ export interface CategoryCount {
 }
 
 export interface StateVisitStats {
+  country: Country
   state_fips: string
   name: string
   abbr: string

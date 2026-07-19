@@ -5,7 +5,7 @@ import { getEntry } from '../api/client'
 import type { Category, Entry } from '../api/types'
 import { formatDate } from '../lib/format'
 import { midsizeUrl } from '../lib/photos'
-import { displayLocation } from '../lib/location'
+import { displayLocation, regionAbbrKey } from '../lib/location'
 import CategoryBadge from './CategoryBadge'
 
 interface Props {
@@ -34,9 +34,8 @@ export default function MapEntryPanel({ entryId, categoriesById, stateAbbrByFips
   }, [entryId])
 
   const category = entry ? categoriesById.get(entry.category_id) : undefined
-  const location = entry
-    ? displayLocation(entry, entry.state_fips ? stateAbbrByFips.get(entry.state_fips) : undefined)
-    : ''
+  // stateAbbrByFips is keyed by country-prefixed code ("US24"/"CA24").
+  const location = entry ? displayLocation(entry, stateAbbrByFips.get(regionAbbrKey(entry))) : ''
   const shown = entry?.photos[activePhoto]
 
   return (

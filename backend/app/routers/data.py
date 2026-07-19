@@ -61,6 +61,7 @@ async def import_data(file: UploadFile = File(...), db: Session = Depends(get_db
                 latitude=e.latitude,
                 longitude=e.longitude,
                 address=e.address,
+                country=e.country,
                 state_fips=e.state_fips,
                 county_fips=e.county_fips,
                 status=e.status,

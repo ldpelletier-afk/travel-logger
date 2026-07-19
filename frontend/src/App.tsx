@@ -8,6 +8,9 @@ import EntryFormPage from './pages/EntryFormPage'
 import MapPage from './pages/MapPage'
 import StatsPage from './pages/StatsPage'
 
+const COUNTRY_UNIT: Record<string, string> = { US: 'counties', CA: 'census divisions' }
+const COUNTRY_LABEL: Record<string, string> = { US: 'US', CA: 'Canada' }
+
 function CountyCounter() {
   const [stats, setStats] = useState<CountyStats | null>(null)
 
@@ -18,9 +21,13 @@ function CountyCounter() {
   if (!stats) return null
   return (
     <div className="county-counter">
-      <strong>{stats.visited.toLocaleString()}</strong>
-      of {stats.total.toLocaleString()} counties visited
-      <strong>{stats.percent}%</strong>
+      {stats.by_country.map((c) => (
+        <span key={c.country} className="county-counter-item" title={`${COUNTRY_LABEL[c.country]}: ${c.percent}%`}>
+          <span className="county-counter-flag">{COUNTRY_LABEL[c.country]}</span>
+          <strong>{c.visited.toLocaleString()}</strong>
+          <span className="county-counter-of">/ {c.total.toLocaleString()} {COUNTRY_UNIT[c.country]}</span>
+        </span>
+      ))}
     </div>
   )
 }

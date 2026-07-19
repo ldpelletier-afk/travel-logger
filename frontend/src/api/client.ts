@@ -1,5 +1,6 @@
 import type {
   Category,
+  Country,
   CountyCollection,
   CountyStats,
   Entry,
@@ -95,6 +96,14 @@ export function getCounties(): Promise<CountyCollection> {
   return request('/geo/counties-20m.geojson')
 }
 
+export function getCaProvinces(): Promise<StateCollection> {
+  return request('/geo/ca-provinces-20m.geojson')
+}
+
+export function getCaCensusDivisions(): Promise<CountyCollection> {
+  return request('/geo/ca-census-divisions-20m.geojson')
+}
+
 export function getVisitedCounties(): Promise<VisitedCounty[]> {
   return request('/api/counties/visited')
 }
@@ -103,12 +112,15 @@ export function getCountyStats(): Promise<CountyStats> {
   return request('/api/counties/stats')
 }
 
-export function markCountyManual(fips: string): Promise<{ county_fips: string; already_marked: boolean }> {
-  return request(`/api/counties/${fips}/manual`, { method: 'POST' })
+export function markCountyManual(
+  country: Country,
+  fips: string,
+): Promise<{ county_fips: string; already_marked: boolean }> {
+  return request(`/api/counties/${country}/${fips}/manual`, { method: 'POST' })
 }
 
-export function unmarkCountyManual(fips: string): Promise<void> {
-  return request(`/api/counties/${fips}/manual`, { method: 'DELETE' })
+export function unmarkCountyManual(country: Country, fips: string): Promise<void> {
+  return request(`/api/counties/${country}/${fips}/manual`, { method: 'DELETE' })
 }
 
 export async function downloadExport(): Promise<void> {

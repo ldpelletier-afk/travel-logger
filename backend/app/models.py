@@ -27,6 +27,7 @@ class Entry(Base):
     latitude: Mapped[float]
     longitude: Mapped[float]
     address: Mapped[str] = mapped_column(Text, default="")
+    country: Mapped[str | None] = mapped_column(String(2), index=True)  # US | CA
     state_fips: Mapped[str | None] = mapped_column(String(2), index=True)
     county_fips: Mapped[str | None] = mapped_column(String(5), index=True)
     status: Mapped[str] = mapped_column(String(10), default="visited")  # visited | candidate
@@ -69,5 +70,8 @@ class ManualCounty(Base):
     __tablename__ = "manual_counties"
     __table_args__ = (UniqueConstraint("county_fips"),)
 
+    # US county GEOIDs are 5-digit and CA census-division CDUIDs 4-digit, so
+    # they never collide as strings — county_fips stays a safe primary key.
     county_fips: Mapped[str] = mapped_column(String(5), primary_key=True)
+    country: Mapped[str] = mapped_column(String(2), default="US")  # US | CA
     marked_at: Mapped[datetime] = mapped_column(server_default=func.now())

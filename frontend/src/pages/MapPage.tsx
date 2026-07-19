@@ -3,6 +3,8 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { ArrowLeft, X, ZoomIn } from 'lucide-react'
 import {
+  getCaCensusDivisions,
+  getCaProvinces,
   getCounties,
   getStates,
   getVisitedCounties,
@@ -11,13 +13,17 @@ import {
   markCountyManual,
   unmarkCountyManual,
 } from '../api/client'
-import type { Category, CountyCollection, Entry, StateCollection } from '../api/types'
+import type { Category, Country, CountyCollection, Entry, StateCollection } from '../api/types'
 import { bboxOfGeometry, type Bbox } from '../lib/geo'
 import { iconFor } from '../components/icons'
 import MapEntryPanel from '../components/MapEntryPanel'
 import { formatDate } from '../lib/format'
 
-const CONUS_BOUNDS: Bbox = [-125, 24, -66.5, 49.5]
+// Continental view covering the contiguous US plus southern/central Canada.
+// (Far-north territories and AK/HI still render; this just frames the default.)
+const NA_BOUNDS: Bbox = [-127, 24, -60, 60]
+
+const SUBDIVISION_UNIT: Record<Country, string> = { US: 'counties', CA: 'census divisions' }
 
 const PALETTE = {
   light: {
@@ -80,6 +86,7 @@ function entryToFeature(entry: Entry, categoriesById: Map<number, Category>): En
 }
 
 interface StateIndexEntry {
+  country: Country
   name: string
   abbr: string
   bbox: Bbox
@@ -100,12 +107,20 @@ interface MapData {
   entryFeatures: EntryFeature[]
 }
 
-interface ScopeStats {
-  label: string
+interface CountryScope {
+  country: Country
   visited: number
   total: number
-  percent: number
 }
+
+interface ScopeStats {
+  label: string
+  countries: CountryScope[]
+}
+
+// Prefix a raw subdivision/region code with its country so US and CA codes
+// (which overlap — US "24" = Maryland, CA "24" = Quebec) can share one map.
+const key = (country: Country, code: string) => `${country}${code}`
 
 interface Tooltip {
   x: number
@@ -134,41 +149,69 @@ function isDarkMode(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 
+// Rewrite each feature's GEOID/STATEFP to a country-prefixed, globally-unique
+// code, keeping the raw code + country around for API calls that need them.
+function tagFeatures<T extends StateCollection | CountyCollection>(fc: T, country: Country): T {
+  for (const f of fc.features) {
+    const p = f.properties as Record<string, string>
+    p.COUNTRY = country
+    p.RAWID = p.GEOID
+    p.RAWSTATEFP = p.STATEFP
+    p.GEOID = key(country, p.GEOID)
+    p.STATEFP = key(country, p.STATEFP)
+  }
+  return fc
+}
+
+function mergeCollections<T extends { features: unknown[] }>(a: T, b: T): T {
+  return { ...a, features: [...a.features, ...b.features] }
+}
+
 async function loadMapData(): Promise<MapData> {
-  const [states, counties, visitedRows, categories, entries] = await Promise.all([
-    getStates(),
-    getCounties(),
-    getVisitedCounties(),
-    listCategories(),
-    listEntries({}),
-  ])
+  const [usStates, usCounties, caProvinces, caCds, visitedRows, categories, entries] =
+    await Promise.all([
+      getStates(),
+      getCounties(),
+      getCaProvinces(),
+      getCaCensusDivisions(),
+      getVisitedCounties(),
+      listCategories(),
+      listEntries({}),
+    ])
+
+  const states = mergeCollections(tagFeatures(usStates, 'US'), tagFeatures(caProvinces, 'CA'))
+  const counties = mergeCollections(tagFeatures(usCounties, 'US'), tagFeatures(caCds, 'CA'))
 
   const visited = new Set<string>()
   const entrySet = new Set<string>()
   const manualSet = new Set<string>()
   for (const row of visitedRows) {
-    visited.add(row.county_fips)
-    if (row.sources.includes('entry')) entrySet.add(row.county_fips)
-    if (row.sources.includes('manual')) manualSet.add(row.county_fips)
+    const k = key(row.country, row.county_fips)
+    visited.add(k)
+    if (row.sources.includes('entry')) entrySet.add(k)
+    if (row.sources.includes('manual')) manualSet.add(k)
   }
 
   const stateIndex = new Map<string, StateIndexEntry>()
   const stateAbbrByFips = new Map<string, string>()
   for (const f of states.features) {
-    stateIndex.set(f.properties.STATEFP, {
-      name: f.properties.NAME,
-      abbr: f.properties.STUSPS,
+    const p = f.properties as Record<string, string>
+    stateIndex.set(p.STATEFP, {
+      country: p.COUNTRY as Country,
+      name: p.NAME,
+      abbr: p.STUSPS,
       bbox: bboxOfGeometry(f.geometry),
       total: 0,
       geoids: [],
     })
-    stateAbbrByFips.set(f.properties.STATEFP, f.properties.STUSPS)
+    stateAbbrByFips.set(p.STATEFP, p.STUSPS)
   }
   for (const f of counties.features) {
-    const entry = stateIndex.get(f.properties.STATEFP)
+    const p = f.properties as Record<string, string>
+    const entry = stateIndex.get(p.STATEFP)
     if (entry) {
       entry.total += 1
-      entry.geoids.push(f.properties.GEOID)
+      entry.geoids.push(p.GEOID)
     }
   }
 
@@ -228,22 +271,24 @@ export default function MapPage() {
 
   function computeStats(fips: string | null): ScopeStats {
     const d = dataRef.current!
-    if (!fips) {
+    if (fips) {
+      const s = d.stateIndex.get(fips)!
+      const visitedInState = s.geoids.filter((g) => d.visited.has(g)).length
       return {
-        label: 'United States',
-        visited: d.visited.size,
-        total: d.counties.features.length,
-        percent: Math.round((d.visited.size / d.counties.features.length) * 1000) / 10,
+        label: s.name,
+        countries: [{ country: s.country, visited: visitedInState, total: s.total }],
       }
     }
-    const s = d.stateIndex.get(fips)!
-    const visitedInState = s.geoids.filter((g) => d.visited.has(g)).length
-    return {
-      label: s.name,
-      visited: visitedInState,
-      total: s.total,
-      percent: s.total ? Math.round((visitedInState / s.total) * 1000) / 10 : 0,
+    // Continental view: totals per country.
+    const totals: Record<Country, CountryScope> = {
+      US: { country: 'US', visited: 0, total: 0 },
+      CA: { country: 'CA', visited: 0, total: 0 },
     }
+    for (const s of d.stateIndex.values()) {
+      totals[s.country].total += s.total
+      totals[s.country].visited += s.geoids.filter((g) => d.visited.has(g)).length
+    }
+    return { label: 'North America', countries: [totals.US, totals.CA] }
   }
 
   function repaintCounties() {
@@ -262,6 +307,9 @@ export default function MapPage() {
     const d = dataRef.current
     if (!d || d.entrySet.has(fips)) return
     const wasManual = d.manualSet.has(fips)
+    // fips is the country-prefixed key, e.g. "US36061" / "CA2466".
+    const country = fips.slice(0, 2) as Country
+    const rawFips = fips.slice(2)
 
     if (wasManual) {
       d.manualSet.delete(fips)
@@ -274,8 +322,8 @@ export default function MapPage() {
     setStats(computeStats(selectedStateRef.current))
 
     try {
-      if (wasManual) await unmarkCountyManual(fips)
-      else await markCountyManual(fips)
+      if (wasManual) await unmarkCountyManual(country, rawFips)
+      else await markCountyManual(country, rawFips)
     } catch {
       if (wasManual) {
         d.manualSet.add(fips)
@@ -309,7 +357,7 @@ export default function MapPage() {
     )
   }
 
-  function backToUS() {
+  function backToContinent() {
     const map = mapRef.current
     if (!map) return
     selectedStateRef.current = null
@@ -319,8 +367,8 @@ export default function MapPage() {
     map.setFilter('counties-hover-outline', ['==', ['get', 'GEOID'], ''])
     map.fitBounds(
       [
-        [CONUS_BOUNDS[0], CONUS_BOUNDS[1]],
-        [CONUS_BOUNDS[2], CONUS_BOUNDS[3]],
+        [NA_BOUNDS[0], NA_BOUNDS[1]],
+        [NA_BOUNDS[2], NA_BOUNDS[3]],
       ],
       { padding: 24, duration: 600 },
     )
@@ -356,8 +404,8 @@ export default function MapPage() {
         layers: [{ id: 'bg', type: 'background', paint: { 'background-color': palette.background } }],
       },
       bounds: [
-        [CONUS_BOUNDS[0], CONUS_BOUNDS[1]],
-        [CONUS_BOUNDS[2], CONUS_BOUNDS[3]],
+        [NA_BOUNDS[0], NA_BOUNDS[1]],
+        [NA_BOUNDS[2], NA_BOUNDS[3]],
       ],
       fitBoundsOptions: { padding: 24 },
       minZoom: 2.5,
@@ -511,7 +559,7 @@ export default function MapPage() {
             setTooltip({
               x: point.x,
               y: point.y,
-              lines: [s.name, `${visitedInState} of ${s.total} counties (${pct}%)`],
+              lines: [s.name, `${visitedInState} of ${s.total} ${SUBDIVISION_UNIT[s.country]} (${pct}%)`],
             })
           }
         } else {
@@ -713,21 +761,32 @@ export default function MapPage() {
       <div className="map-canvas-wrap">
         <div ref={containerRef} className="map-canvas" />
 
-        {!ready && <div className="map-loading">Loading county boundaries…</div>}
+        {!ready && <div className="map-loading">Loading US & Canada boundaries…</div>}
 
         {selectedState && (
-          <button type="button" className="map-back-button" onClick={backToUS}>
-            <ArrowLeft size={15} /> United States
+          <button type="button" className="map-back-button" onClick={backToContinent}>
+            <ArrowLeft size={15} /> North America
           </button>
         )}
 
         {stats && (
           <div className="map-stats-panel">
             <div className="map-stats-label">{stats.label}</div>
-            <div className="map-stats-value">
-              <strong>{stats.visited.toLocaleString()}</strong> of {stats.total.toLocaleString()} counties
-            </div>
-            <div className="map-stats-percent">{stats.percent}% visited</div>
+            {stats.countries.map((c) => {
+              const pct = c.total ? Math.round((c.visited / c.total) * 1000) / 10 : 0
+              return (
+                <div key={c.country} className="map-stats-country">
+                  {stats.countries.length > 1 && (
+                    <span className="map-stats-flag">{c.country}</span>
+                  )}
+                  <span className="map-stats-value">
+                    <strong>{c.visited.toLocaleString()}</strong> of {c.total.toLocaleString()}{' '}
+                    {SUBDIVISION_UNIT[c.country]}
+                  </span>
+                  <span className="map-stats-percent">{pct}%</span>
+                </div>
+              )
+            })}
           </div>
         )}
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
-import { listCategories, listEntries, getStates } from '../api/client'
+import { listCategories, listEntries, getStates, getCaProvinces } from '../api/client'
 import type { Category, Entry, EntryFilters, StateFeature } from '../api/types'
+import { regionAbbrKey } from '../lib/location'
 import FilterBar from '../components/FilterBar'
 import EntryCard from '../components/EntryCard'
 import EntryListRow from '../components/EntryListRow'
@@ -10,6 +11,7 @@ import EntryListRow from '../components/EntryListRow'
 export default function CatalogPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [states, setStates] = useState<StateFeature[]>([])
+  const [provinces, setProvinces] = useState<StateFeature[]>([])
   const [entries, setEntries] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -19,6 +21,7 @@ export default function CatalogPage() {
   useEffect(() => {
     listCategories().then(setCategories).catch((e) => setError(String(e)))
     getStates().then((fc) => setStates(fc.features)).catch((e) => setError(String(e)))
+    getCaProvinces().then((fc) => setProvinces(fc.features)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -36,10 +39,14 @@ export default function CatalogPage() {
   }, [filters])
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
-  const stateAbbrByFips = useMemo(
-    () => new Map(states.map((s) => [s.properties.STATEFP, s.properties.STUSPS])),
-    [states],
-  )
+  // Keyed by country+fips (e.g. "US24" / "CA24") so US states and CA provinces
+  // don't collide (both use code "24").
+  const abbrByKey = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of states) m.set(`US${s.properties.STATEFP}`, s.properties.STUSPS)
+    for (const p of provinces) m.set(`CA${p.properties.STATEFP}`, p.properties.STUSPS)
+    return m
+  }, [states, provinces])
 
   if (error) {
     return <div className="empty-state error">Couldn't load the catalog: {error}</div>
@@ -76,7 +83,7 @@ export default function CatalogPage() {
               key={entry.id}
               entry={entry}
               category={categoryById.get(entry.category_id)}
-              stateAbbr={entry.state_fips ? stateAbbrByFips.get(entry.state_fips) : undefined}
+              stateAbbr={abbrByKey.get(regionAbbrKey(entry))}
             />
           ))}
         </div>
@@ -94,7 +101,7 @@ export default function CatalogPage() {
               key={entry.id}
               entry={entry}
               category={categoryById.get(entry.category_id)}
-              stateAbbr={entry.state_fips ? stateAbbrByFips.get(entry.state_fips) : undefined}
+              stateAbbr={abbrByKey.get(regionAbbrKey(entry))}
             />
           ))}
         </div>
