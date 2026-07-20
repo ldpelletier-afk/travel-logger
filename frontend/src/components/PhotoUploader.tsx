@@ -1,33 +1,17 @@
 import { useRef, useState } from 'react'
 import { UploadCloud } from 'lucide-react'
-import { uploadPhoto } from '../api/client'
-import type { Photo } from '../api/types'
 
 interface Props {
-  entryId: number
-  onUploaded: (photo: Photo) => void
+  onFiles: (files: File[]) => void
+  busy?: boolean
 }
 
-export default function PhotoUploader({ entryId, onUploaded }: Props) {
+// A pure dropzone / file-picker: it hands selected files to the parent and
+// doesn't care whether they get uploaded now (editing) or staged for upload
+// on save (a brand-new entry that has no id yet).
+export default function PhotoUploader({ onFiles, busy }: Props) {
   const [dragging, setDragging] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  async function uploadFiles(files: FileList | File[]) {
-    setUploading(true)
-    setError(null)
-    try {
-      for (const file of Array.from(files)) {
-        const photo = await uploadPhoto(entryId, file)
-        onUploaded(photo)
-      }
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setUploading(false)
-    }
-  }
 
   return (
     <div
@@ -40,7 +24,7 @@ export default function PhotoUploader({ entryId, onUploaded }: Props) {
       onDrop={(e) => {
         e.preventDefault()
         setDragging(false)
-        if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files)
+        if (e.dataTransfer.files.length) onFiles(Array.from(e.dataTransfer.files))
       }}
       onClick={() => inputRef.current?.click()}
       role="button"
@@ -53,15 +37,14 @@ export default function PhotoUploader({ entryId, onUploaded }: Props) {
         multiple
         hidden
         onChange={(e) => {
-          if (e.target.files?.length) uploadFiles(e.target.files)
+          if (e.target.files?.length) onFiles(Array.from(e.target.files))
           e.target.value = ''
         }}
       />
       <UploadCloud size={22} />
       <div className="photo-uploader-text">
-        {uploading ? 'Uploading…' : 'Drag photos here, or click to choose files'}
+        {busy ? 'Uploading…' : 'Drag photos here, or click to choose files'}
       </div>
-      {error && <div className="photo-uploader-error">{error}</div>}
     </div>
   )
 }

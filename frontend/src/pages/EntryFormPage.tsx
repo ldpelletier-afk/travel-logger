@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { Trash2, Star, Loader2, Search, MapPin } from 'lucide-react'
 import {
@@ -14,6 +14,7 @@ import {
   listCategories,
   updateEntry,
   updatePhotoCaption,
+  uploadPhoto,
 } from '../api/client'
 import type { Category, Entry, GeocodeResult, ParkPreset, Photo, StateFeature } from '../api/types'
 import { midsizeUrl } from '../lib/photos'
@@ -26,6 +27,13 @@ interface ExifPrompt {
   lat?: number
   lng?: number
   takenAt?: string
+}
+
+interface StagedPhoto {
+  id: string
+  file: File
+  url: string
+  caption: string
 }
 
 export default function EntryFormPage() {
@@ -66,8 +74,21 @@ export default function EntryFormPage() {
   const [loaded, setLoaded] = useState(!isEdit)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
   const [exifPrompt, setExifPrompt] = useState<ExifPrompt | null>(null)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
+
+  // Photos chosen on a brand-new entry (which has no id to attach to yet).
+  // They're held in memory with object-URL previews and uploaded right after
+  // the entry is created on save.
+  const [staged, setStaged] = useState<StagedPhoto[]>([])
+  const [stagedCoverId, setStagedCoverId] = useState<string | null>(null)
+  const stagedRef = useRef(staged)
+  stagedRef.current = staged
+
+  // Revoke any outstanding object URLs when leaving the page.
+  useEffect(() => () => stagedRef.current.forEach((s) => URL.revokeObjectURL(s.url)), [])
 
   useEffect(() => {
     listCategories().then(setCategories).catch(() => {})
@@ -145,6 +166,48 @@ export default function EntryFormPage() {
       cancelled = true
     }
   }, [id, isEdit])
+
+  // Editing: upload straight to the existing entry. New entry: stage in memory
+  // until the entry exists (on save).
+  async function handleFiles(files: File[]) {
+    if (isEdit && entry) {
+      setPhotoBusy(true)
+      setPhotoError(null)
+      try {
+        for (const file of files) {
+          const photo = await uploadPhoto(entry.id, file)
+          handlePhotoUploaded(photo)
+        }
+      } catch (e) {
+        setPhotoError(String(e))
+      } finally {
+        setPhotoBusy(false)
+      }
+    } else {
+      setStaged((prev) => [
+        ...prev,
+        ...files.map((file) => ({
+          id: crypto.randomUUID(),
+          file,
+          url: URL.createObjectURL(file),
+          caption: '',
+        })),
+      ])
+    }
+  }
+
+  function removeStaged(id: string) {
+    setStaged((prev) => {
+      const target = prev.find((s) => s.id === id)
+      if (target) URL.revokeObjectURL(target.url)
+      return prev.filter((s) => s.id !== id)
+    })
+    setStagedCoverId((prev) => (prev === id ? null : prev))
+  }
+
+  function setStagedCaption(id: string, caption: string) {
+    setStaged((prev) => prev.map((s) => (s.id === id ? { ...s, caption } : s)))
+  }
 
   function handlePhotoUploaded(photo: Photo) {
     setPhotos((prev) => [...prev, photo])
@@ -255,7 +318,21 @@ export default function EntryFormPage() {
         const updated = await updateEntry(entry.id, payload)
         setEntry(updated)
       } else {
-        await createEntry(payload)
+        const created = await createEntry(payload)
+        // Upload the staged photos to the freshly-created entry, preserving
+        // order (the backend makes the first upload the cover by default).
+        const coverId = stagedCoverId ?? staged[0]?.id
+        let chosenCoverPhotoId: number | null = null
+        for (const sp of staged) {
+          const photo = await uploadPhoto(created.id, sp.file)
+          if (sp.caption.trim()) await updatePhotoCaption(photo.id, sp.caption.trim())
+          if (sp.id === coverId) chosenCoverPhotoId = photo.id
+        }
+        // Only override the default (first) cover if the user picked another.
+        if (chosenCoverPhotoId !== null && coverId !== staged[0]?.id) {
+          await updateEntry(created.id, { cover_photo_id: chosenCoverPhotoId })
+        }
+        staged.forEach((s) => URL.revokeObjectURL(s.url))
         navigate('/')
       }
     } catch (err) {
@@ -485,67 +562,108 @@ export default function EntryFormPage() {
         </div>
       </form>
 
-      {isEdit && entry && (
-        <div className="photo-section">
-          <h2>Photos</h2>
+      <div className="photo-section">
+        <h2>Photos</h2>
 
-          {exifPrompt && (
-            <div className="exif-prompt">
-              <span>This photo has EXIF data that doesn't match the entry.</span>
-              <div className="exif-prompt-actions">
-                {exifPrompt.lat != null && (
-                  <button type="button" onClick={applyExifLocation}>
-                    Use photo location ({exifPrompt.lat.toFixed(4)}, {exifPrompt.lng!.toFixed(4)})
-                  </button>
-                )}
-                {exifPrompt.takenAt && (
-                  <button type="button" onClick={applyExifDate}>
-                    Use photo date ({exifPrompt.takenAt})
-                  </button>
-                )}
-                <button type="button" className="exif-prompt-dismiss" onClick={() => setExifPrompt(null)}>
-                  Dismiss
+        {!isEdit && (
+          <p className="form-field-hint">
+            Add photos now — they upload automatically when you create the entry.
+          </p>
+        )}
+
+        {exifPrompt && (
+          <div className="exif-prompt">
+            <span>This photo has EXIF data that doesn't match the entry.</span>
+            <div className="exif-prompt-actions">
+              {exifPrompt.lat != null && (
+                <button type="button" onClick={applyExifLocation}>
+                  Use photo location ({exifPrompt.lat.toFixed(4)}, {exifPrompt.lng!.toFixed(4)})
                 </button>
-              </div>
+              )}
+              {exifPrompt.takenAt && (
+                <button type="button" onClick={applyExifDate}>
+                  Use photo date ({exifPrompt.takenAt})
+                </button>
+              )}
+              <button type="button" className="exif-prompt-dismiss" onClick={() => setExifPrompt(null)}>
+                Dismiss
+              </button>
             </div>
-          )}
+          </div>
+        )}
 
-          <PhotoUploader entryId={entry.id} onUploaded={handlePhotoUploaded} />
+        <PhotoUploader onFiles={handleFiles} busy={photoBusy} />
+        {photoError && <div className="form-error">{photoError}</div>}
 
-          {photos.length > 0 && (
-            <div className="photo-grid">
-              {photos.map((p, i) => (
-                <div key={p.id} className="photo-grid-item">
-                  <button type="button" className="photo-grid-thumb" onClick={() => setLightboxIndex(i)}>
-                    <img src={midsizeUrl(p.thumb_path)} alt={p.caption || ''} />
-                    {coverPhotoId === p.id && (
+        {isEdit && photos.length > 0 && (
+          <div className="photo-grid">
+            {photos.map((p, i) => (
+              <div key={p.id} className="photo-grid-item">
+                <button type="button" className="photo-grid-thumb" onClick={() => setLightboxIndex(i)}>
+                  <img src={midsizeUrl(p.thumb_path)} alt={p.caption || ''} />
+                  {coverPhotoId === p.id && (
+                    <span className="photo-grid-cover-badge">
+                      <Star size={11} fill="currentColor" /> Cover
+                    </span>
+                  )}
+                </button>
+                <input
+                  className="photo-grid-caption"
+                  defaultValue={p.caption}
+                  placeholder="Caption…"
+                  onBlur={(e) => handleCaptionBlur(p.id, e.target.value)}
+                />
+                <div className="photo-grid-actions">
+                  {coverPhotoId !== p.id && (
+                    <button type="button" onClick={() => handleSetCover(p.id)}>
+                      Set as cover
+                    </button>
+                  )}
+                  <button type="button" className="danger" onClick={() => handleDeletePhoto(p.id)}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!isEdit && staged.length > 0 && (
+          <div className="photo-grid">
+            {staged.map((sp) => {
+              const isCover = (stagedCoverId ?? staged[0]?.id) === sp.id
+              return (
+                <div key={sp.id} className="photo-grid-item">
+                  <div className="photo-grid-thumb photo-grid-thumb-static">
+                    <img src={sp.url} alt={sp.caption || ''} />
+                    {isCover && (
                       <span className="photo-grid-cover-badge">
                         <Star size={11} fill="currentColor" /> Cover
                       </span>
                     )}
-                  </button>
+                  </div>
                   <input
                     className="photo-grid-caption"
-                    defaultValue={p.caption}
+                    value={sp.caption}
                     placeholder="Caption…"
-                    onBlur={(e) => handleCaptionBlur(p.id, e.target.value)}
+                    onChange={(e) => setStagedCaption(sp.id, e.target.value)}
                   />
                   <div className="photo-grid-actions">
-                    {coverPhotoId !== p.id && (
-                      <button type="button" onClick={() => handleSetCover(p.id)}>
+                    {!isCover && (
+                      <button type="button" onClick={() => setStagedCoverId(sp.id)}>
                         Set as cover
                       </button>
                     )}
-                    <button type="button" className="danger" onClick={() => handleDeletePhoto(p.id)}>
+                    <button type="button" className="danger" onClick={() => removeStaged(sp.id)}>
                       <Trash2 size={13} />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       {lightboxIndex !== null && (
         <Lightbox
