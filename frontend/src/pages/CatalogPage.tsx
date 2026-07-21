@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { listCategories, listEntries, getStates, getCaProvinces } from '../api/client'
@@ -7,6 +7,11 @@ import { regionAbbrKey } from '../lib/location'
 import FilterBar from '../components/FilterBar'
 import EntryCard from '../components/EntryCard'
 import EntryListRow from '../components/EntryListRow'
+
+// Survives this page unmounting (opening an entry) so we can drop the reader
+// back where they were on return. Module-scoped, so it persists across route
+// changes within the session but resets on a full reload.
+let savedScroll = 0
 
 export default function CatalogPage() {
   const [categories, setCategories] = useState<Category[]>([])
@@ -17,12 +22,32 @@ export default function CatalogPage() {
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<EntryFilters>({ sort: 'created_at', order: 'desc' })
   const [view, setView] = useState<'grid' | 'list'>('grid')
+  const restoredRef = useRef(false)
 
   useEffect(() => {
     listCategories().then(setCategories).catch((e) => setError(String(e)))
     getStates().then((fc) => setStates(fc.features)).catch((e) => setError(String(e)))
     getCaProvinces().then((fc) => setProvinces(fc.features)).catch(() => {})
   }, [])
+
+  // Remember where we were when leaving (opening an entry, etc.).
+  useEffect(() => {
+    const onScroll = () => {
+      savedScroll = window.scrollY
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // Restore that position once the entries are actually rendered (the grid is
+  // short while loading, so scrolling any earlier would land in the wrong
+  // place). Only on the first load after mounting — not on filter changes.
+  useLayoutEffect(() => {
+    if (!loading && !restoredRef.current) {
+      restoredRef.current = true
+      if (savedScroll > 0) window.scrollTo(0, savedScroll)
+    }
+  }, [loading])
 
   useEffect(() => {
     let cancelled = false
