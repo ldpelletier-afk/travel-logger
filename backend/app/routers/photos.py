@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -8,7 +10,26 @@ from ..services.images import delete_photo_files, store_photo
 
 router = APIRouter(prefix="/api", tags=["photos"])
 
-ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/tiff", "image/heic"}
+ALLOWED_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/tiff",
+    "image/heic",
+    "image/heif",
+}
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".heic", ".heif"}
+
+
+def _is_allowed(content_type: str | None, filename: str | None) -> bool:
+    if content_type in ALLOWED_TYPES:
+        return True
+    # Browsers are inconsistent about the MIME type they report for HEIC —
+    # some send nothing or a generic "application/octet-stream". Fall back
+    # to the file extension so real photos aren't rejected on that alone.
+    if filename and Path(filename).suffix.lower() in ALLOWED_EXTENSIONS:
+        return True
+    return False
 
 
 @router.post("/entries/{entry_id}/photos", response_model=PhotoOut, status_code=201)
@@ -16,7 +37,7 @@ async def upload_photo(entry_id: int, file: UploadFile = File(...), db: Session 
     entry = db.get(Entry, entry_id)
     if not entry:
         raise HTTPException(404, "Entry not found")
-    if file.content_type not in ALLOWED_TYPES:
+    if not _is_allowed(file.content_type, file.filename):
         raise HTTPException(415, f"Unsupported type {file.content_type}")
 
     photo = Photo(entry_id=entry_id, original_path="", thumb_path="", midsize_path="")

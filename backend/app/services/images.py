@@ -5,8 +5,14 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 from PIL.ExifTags import GPSTAGS, TAGS
+from pillow_heif import register_heif_opener
 
 from ..db import PHOTOS_DIR
+
+# Teach Pillow to decode HEIC/HEIF (iPhone photos) alongside JPEG/PNG/etc.
+# Renditions are still written as JPEG, so the browser never has to display
+# HEIC directly.
+register_heif_opener()
 
 THUMB_EDGE = 400
 MIDSIZE_EDGE = 1600

@@ -33,7 +33,7 @@ export default function PhotoUploader({ onFiles, busy }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/tiff,image/heic"
+        accept="image/jpeg,image/png,image/webp,image/tiff,image/heic,image/heif,.heic,.heif"
         multiple
         hidden
         onChange={(e) => {
